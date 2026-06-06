@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS activities (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  platform TEXT,
+  category TEXT NOT NULL,
+  start_date TEXT,
+  end_date TEXT,
+  status TEXT NOT NULL DEFAULT 'watching',
+  requirement TEXT,
+  estimated_cost REAL NOT NULL DEFAULT 0,
+  estimated_value REAL NOT NULL DEFAULT 0,
+  actual_cost REAL DEFAULT 0,
+  actual_value REAL DEFAULT 0,
+  url TEXT,
+  priority TEXT DEFAULT 'medium',
+  tags TEXT,
+  note TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);

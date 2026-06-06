@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS accounts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'USD',
+  balance REAL NOT NULL DEFAULT 0,
+  institution TEXT,
+  note TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
