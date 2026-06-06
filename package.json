@@ -10,9 +10,11 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-sql": "^2.0.0",
     "@element-plus/icons-vue": "^2.3.1",
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@tauri-apps/plugin-fs": "^2.5.1",
+    "@tauri-apps/plugin-sql": "^2.0.0",
     "echarts": "^5.5.1",
     "element-plus": "^2.8.8",
     "pinia": "^2.2.6",
