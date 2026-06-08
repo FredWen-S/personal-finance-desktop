@@ -7,6 +7,8 @@ export interface AccountSummary {
   totalLiabilities: number;
   netWorth: number;
   activeAccountCount: number;
+  baseCurrency: string;
+  liabilityNote: string;
 }
 
 export interface MonthlyTransactionSummary {
@@ -14,6 +16,7 @@ export interface MonthlyTransactionSummary {
   monthlyExpense: number;
   monthlyNet: number;
   transactionCount: number;
+  baseCurrency: string;
 }
 
 export interface PointSummary {
@@ -45,6 +48,17 @@ export interface DashboardRecentTransaction {
   target_account_name?: string | null;
 }
 
+export interface CreditCardOverviewItem {
+  id?: number;
+  name: string;
+  currency: string;
+  current_debt: number;
+  credit_limit: number;
+  available_credit: number;
+  statement_day?: number | null;
+  due_day?: number | null;
+}
+
 export interface DashboardData {
   month: string;
   accountSummary: AccountSummary;
@@ -52,4 +66,5 @@ export interface DashboardData {
   pointSummary: PointSummary;
   activitySummary: ActivitySummary;
   recentTransactions: DashboardRecentTransaction[];
+  creditCardOverview: CreditCardOverviewItem[];
 }

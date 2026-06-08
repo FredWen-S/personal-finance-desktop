@@ -9,6 +9,7 @@ import type {
   ReportData,
   TopMerchantItem
 } from "../types/report";
+import { convertAmount, getBaseCurrency } from "./currencyService";
 
 export async function getMonthlyCashFlow(
   months: number
@@ -16,38 +17,66 @@ export async function getMonthlyCashFlow(
   const monthCount = clampInteger(months, 1, 36);
   const monthList = getRecentMonths(monthCount);
   const db = await getDatabase();
+  const baseCurrency = await getBaseCurrency();
 
   const rows = await db.select<
     Array<{
       month: string;
-      income: number | null;
-      expense: number | null;
+      type: string;
+      amount: number;
+      currency: string;
     }>
   >(
     `SELECT
       substr(date, 1, 7) AS month,
-      COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS income,
-      COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS expense
+      type,
+      amount,
+      currency
     FROM transactions
     WHERE substr(date, 1, 7) >= $1
       AND substr(date, 1, 7) <= $2
-    GROUP BY substr(date, 1, 7)
-    ORDER BY month ASC`,
+      AND type IN ('income', 'expense')
+    ORDER BY month ASC, id ASC`,
     [monthList[0], monthList[monthList.length - 1]]
   );
 
-  const rowMap = new Map(rows.map((row) => [row.month, row]));
+  const monthlyTotals = new Map<string, { income: number; expense: number }>();
+
+  for (const month of monthList) {
+    monthlyTotals.set(month, { income: 0, expense: 0 });
+  }
+
+  for (const row of rows) {
+    const totals = monthlyTotals.get(row.month);
+
+    if (!totals) {
+      continue;
+    }
+
+    const convertedAmount = await convertAmount(
+      Number(row.amount ?? 0),
+      row.currency,
+      baseCurrency
+    );
+
+    if (row.type === "income") {
+      totals.income += convertedAmount;
+    } else if (row.type === "expense") {
+      totals.expense += convertedAmount;
+    }
+  }
 
   return monthList.map((month) => {
-    const row = rowMap.get(month);
-    const income = Number(row?.income ?? 0);
-    const expense = Number(row?.expense ?? 0);
+    const totals = monthlyTotals.get(month) ?? { income: 0, expense: 0 };
+    const income = totals.income;
+    const expense = totals.expense;
 
     return {
       month,
       income,
       expense,
-      net: income - expense
+      net: income - expense,
+      base_currency: baseCurrency
     };
   });
 }
@@ -56,26 +85,63 @@ export async function getExpenseByCategory(
   month: string
 ): Promise<ExpenseCategoryItem[]> {
   const db = await getDatabase();
+  const baseCurrency = await getBaseCurrency();
 
-  return db.select<ExpenseCategoryItem[]>(
+  const rows = await db.select<
+    Array<{ category: string; amount: number; currency: string }>
+  >(
     `SELECT
       category,
-      COALESCE(SUM(amount), 0) AS amount
+      amount,
+      currency
     FROM transactions
     WHERE type = 'expense'
       AND substr(date, 1, 7) = $1
-    GROUP BY category
-    ORDER BY amount DESC`,
+    ORDER BY category ASC, id ASC`,
     [month]
   );
+
+  const categoryTotals = new Map<string, number>();
+
+  for (const row of rows) {
+    const convertedAmount = await convertAmount(
+      Number(row.amount ?? 0),
+      row.currency,
+      baseCurrency
+    );
+    categoryTotals.set(
+      row.category,
+      (categoryTotals.get(row.category) ?? 0) + convertedAmount
+    );
+  }
+
+  return [...categoryTotals.entries()]
+    .map(([category, amount]) => ({
+      category,
+      amount,
+      base_currency: baseCurrency
+    }))
+    .sort((left, right) => right.amount - left.amount);
 }
 
 export async function getAccountBalanceReport(): Promise<
   AccountBalanceReportItem[]
 > {
   const db = await getDatabase();
+  const baseCurrency = await getBaseCurrency();
 
-  return db.select<AccountBalanceReportItem[]>(
+  const rows = await db.select<
+    Array<
+      Omit<
+        AccountBalanceReportItem,
+        | "converted_balance"
+        | "asset_amount"
+        | "liability_amount"
+        | "balance_role"
+        | "base_currency"
+      >
+    >
+  >(
     `SELECT
       name AS account_name,
       type,
@@ -85,6 +151,39 @@ export async function getAccountBalanceReport(): Promise<
     FROM accounts
     WHERE is_active = 1
     ORDER BY balance DESC, id DESC`
+  );
+
+  const convertedRows: AccountBalanceReportItem[] = [];
+
+  for (const row of rows) {
+    const convertedBalance = await convertAmount(
+      Number(row.balance ?? 0),
+      row.currency,
+      baseCurrency
+    );
+    const isCreditCard = row.type === "credit_card";
+    const assetAmount = isCreditCard
+      ? Math.max(-convertedBalance, 0)
+      : Math.max(convertedBalance, 0);
+    const liabilityAmount = isCreditCard
+      ? Math.max(convertedBalance, 0)
+      : Math.max(-convertedBalance, 0);
+
+    convertedRows.push({
+      ...row,
+      converted_balance: convertedBalance,
+      asset_amount: assetAmount,
+      liability_amount: liabilityAmount,
+      balance_role: liabilityAmount > assetAmount ? "liability" : "asset",
+      base_currency: baseCurrency
+    });
+  }
+
+  return convertedRows.sort(
+    (left, right) =>
+      right.asset_amount +
+      right.liability_amount -
+      (left.asset_amount + left.liability_amount)
   );
 }
 
@@ -142,25 +241,51 @@ export async function getTopMerchants(
   limit: number
 ): Promise<TopMerchantItem[]> {
   const db = await getDatabase();
+  const baseCurrency = await getBaseCurrency();
   const safeLimit = clampInteger(limit, 1, 50);
 
-  return db.select<TopMerchantItem[]>(
+  const rows = await db.select<
+    Array<{ merchant: string; amount: number; currency: string }>
+  >(
     `SELECT
       merchant,
-      COALESCE(SUM(amount), 0) AS amount
+      amount,
+      currency
     FROM transactions
     WHERE type = 'expense'
       AND substr(date, 1, 7) = $1
       AND merchant IS NOT NULL
       AND trim(merchant) != ''
-    GROUP BY merchant
-    ORDER BY amount DESC
-    LIMIT ${safeLimit}`,
+    ORDER BY id ASC`,
     [month]
   );
+
+  const merchantTotals = new Map<string, number>();
+
+  for (const row of rows) {
+    const convertedAmount = await convertAmount(
+      Number(row.amount ?? 0),
+      row.currency,
+      baseCurrency
+    );
+    merchantTotals.set(
+      row.merchant,
+      (merchantTotals.get(row.merchant) ?? 0) + convertedAmount
+    );
+  }
+
+  return [...merchantTotals.entries()]
+    .map(([merchant, amount]) => ({
+      merchant,
+      amount,
+      base_currency: baseCurrency
+    }))
+    .sort((left, right) => right.amount - left.amount)
+    .slice(0, safeLimit);
 }
 
 export async function getReportData(month: string): Promise<ReportData> {
+  const baseCurrency = await getBaseCurrency();
   const [
     monthlyCashFlow,
     expenseByCategory,
@@ -181,6 +306,7 @@ export async function getReportData(month: string): Promise<ReportData> {
 
   return {
     month,
+    baseCurrency,
     monthlyCashFlow,
     expenseByCategory,
     accountBalances,

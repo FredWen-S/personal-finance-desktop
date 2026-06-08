@@ -14,11 +14,67 @@
       </div>
     </div>
 
+    <el-alert
+      v-if="loadError"
+      :title="loadError"
+      type="error"
+      show-icon
+      :closable="false"
+    />
+
     <div class="summary-grid finance-grid">
       <el-card v-for="card in financeCards" :key="card.label" shadow="never">
         <el-statistic :title="card.label" :value="card.value" :precision="2" />
       </el-card>
     </div>
+
+    <el-alert
+      v-if="dashboardData?.accountSummary.liabilityNote"
+      :title="dashboardData.accountSummary.liabilityNote"
+      type="info"
+      show-icon
+      :closable="false"
+    />
+
+    <el-card class="section-card" shadow="never">
+      <template #header>
+        <div class="section-header">
+          <span>信用卡概览</span>
+          <el-tag effect="plain">{{ creditCardOverview.length }} 张</el-tag>
+        </div>
+      </template>
+
+      <el-empty v-if="creditCardOverview.length === 0" description="暂无启用信用卡账户" />
+      <el-table v-else :data="creditCardOverview" stripe>
+        <el-table-column prop="name" label="名称" min-width="160" />
+        <el-table-column prop="currency" label="币种" width="90" />
+        <el-table-column label="当前欠款" width="130" align="right">
+          <template #default="{ row }">
+            {{ formatMoney(row.current_debt) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="信用额度" width="130" align="right">
+          <template #default="{ row }">
+            {{ formatMoney(row.credit_limit) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="可用额度" width="130" align="right">
+          <template #default="{ row }">
+            {{ formatMoney(row.available_credit) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="账单日" width="100">
+          <template #default="{ row }">
+            {{ row.statement_day || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="还款日" width="100">
+          <template #default="{ row }">
+            {{ row.due_day || "-" }}
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
 
     <div class="summary-grid benefit-grid">
       <el-card shadow="never">
@@ -184,6 +240,7 @@ import type { TransactionType } from "../types/transaction";
 
 const loading = ref(false);
 const dashboardData = ref<DashboardData | null>(null);
+const loadError = ref("");
 
 const currentMonth = computed(
   () => dashboardData.value?.month ?? getCurrentMonth()
@@ -214,7 +271,10 @@ const financeCards = computed(() => [
     label: "本月净流入",
     value: dashboardData.value?.monthlyTransactionSummary.monthlyNet ?? 0
   }
-]);
+].map((card) => ({
+  ...card,
+  label: withBaseCurrency(card.label)
+})));
 
 const recentTransactions = computed(
   () => dashboardData.value?.recentTransactions ?? []
@@ -225,6 +285,9 @@ const upcomingActivities = computed(
 const expiringPointPrograms = computed(
   () => dashboardData.value?.pointSummary.expiringPointPrograms ?? []
 );
+const creditCardOverview = computed(
+  () => dashboardData.value?.creditCardOverview ?? []
+);
 
 onMounted(() => {
   void loadDashboard();
@@ -234,14 +297,24 @@ async function loadDashboard(): Promise<void> {
   loading.value = true;
 
   try {
+    loadError.value = "";
     dashboardData.value = await getDashboardData();
   } catch (caughtError) {
     const message =
       caughtError instanceof Error ? caughtError.message : String(caughtError);
+    loadError.value = message;
     ElMessage.error(message);
   } finally {
     loading.value = false;
   }
+}
+
+function withBaseCurrency(label: string): string {
+  const baseCurrency =
+    dashboardData.value?.accountSummary.baseCurrency ??
+    dashboardData.value?.monthlyTransactionSummary.baseCurrency;
+
+  return baseCurrency ? `${label} (${baseCurrency})` : label;
 }
 
 function formatMoney(value: number): string {

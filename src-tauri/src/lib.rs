@@ -27,6 +27,24 @@ pub fn run() {
             sql: include_str!("../migrations/004_add_activities.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 5,
+            description: "add_currency_settings",
+            sql: include_str!("../migrations/005_add_currency_settings.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 6,
+            description: "update_usd_cny_rate",
+            sql: include_str!("../migrations/006_update_usd_cny_rate.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 7,
+            description: "add_credit_card_fields",
+            sql: include_str!("../migrations/007_add_credit_card_fields.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

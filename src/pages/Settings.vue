@@ -51,6 +51,61 @@
     </el-card>
 
     <el-card class="section-card" shadow="never">
+      <template #header>
+        <div class="section-header">
+          <span>币种与汇率设置</span>
+          <el-button type="primary" @click="openRateDialog()">新增汇率</el-button>
+        </div>
+      </template>
+
+      <el-alert
+        title="汇率为手动维护，不是实时汇率；Dashboard / Reports 的跨币种金额会换算到基础币种；如果缺少某个币种到基础币种的汇率，汇总会报错，避免错误计算。"
+        type="info"
+        show-icon
+        :closable="false"
+        class="currency-alert"
+      />
+
+      <div class="base-currency-row">
+        <span class="field-label">基础币种</span>
+        <el-select v-model="baseCurrencyForm.currency" class="currency-select">
+          <el-option
+            v-for="currency in supportedCurrencies"
+            :key="currency"
+            :label="currency"
+            :value="currency"
+          />
+        </el-select>
+        <el-button
+          type="primary"
+          :loading="savingBaseCurrency"
+          @click="saveBaseCurrency"
+        >
+          保存基础币种
+        </el-button>
+      </div>
+
+      <el-table :data="exchangeRates" stripe>
+        <el-table-column prop="from_currency" label="from_currency" width="130" />
+        <el-table-column prop="to_currency" label="to_currency" width="130" />
+        <el-table-column prop="rate" label="rate" width="140" align="right" />
+        <el-table-column prop="note" label="note" min-width="180">
+          <template #default="{ row }">
+            {{ row.note || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="updated_at" label="updated_at" min-width="210" />
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openRateDialog(row)">
+              编辑
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
+    <el-card class="section-card" shadow="never">
       <template #header>导出与备份</template>
 
       <div class="export-actions">
@@ -100,11 +155,67 @@
         <el-button type="danger" disabled>清空所有数据</el-button>
       </div>
     </el-card>
+    <el-dialog v-model="rateDialogVisible" title="汇率设置" width="520px">
+      <el-form label-width="120px">
+        <el-form-item label="from_currency" required>
+          <el-select
+            v-model="rateForm.from_currency"
+            class="dialog-input"
+            :disabled="isLockedSameCurrencyRate"
+          >
+            <el-option
+              v-for="currency in supportedCurrencies"
+              :key="currency"
+              :label="currency"
+              :value="currency"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="to_currency" required>
+          <el-select
+            v-model="rateForm.to_currency"
+            class="dialog-input"
+            :disabled="isLockedSameCurrencyRate"
+          >
+            <el-option
+              v-for="currency in supportedCurrencies"
+              :key="currency"
+              :label="currency"
+              :value="currency"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="rate" required>
+          <el-input-number
+            v-model="rateForm.rate"
+            class="dialog-input"
+            :min="0.000001"
+            :precision="6"
+            :step="0.01"
+            :disabled="isSameCurrencyRate"
+          />
+        </el-form-item>
+        <el-form-item label="note">
+          <el-input v-model="rateForm.note" class="dialog-input" />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="rateDialogVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="savingRate"
+          @click="saveExchangeRate"
+        >
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import {
   createBackupJson,
@@ -112,11 +223,50 @@ import {
   getAppDataInfo,
   getDatabaseStats
 } from "../services/settingsService";
+import {
+  getBaseCurrency,
+  listExchangeRates,
+  setBaseCurrency,
+  upsertExchangeRate
+} from "../services/currencyService";
 import { saveTextFile } from "../services/fileExportService";
+import type {
+  BaseCurrency,
+  ExchangeRate,
+  ExchangeRateInput
+} from "../types/currency";
 import type { DatabaseStats, TableExportName } from "../types/settings";
 
 const statsLoading = ref(false);
 const exportingKey = ref<string | null>(null);
+const savingBaseCurrency = ref(false);
+const savingRate = ref(false);
+const rateDialogVisible = ref(false);
+const isLockedSameCurrencyRate = ref(false);
+const exchangeRates = ref<ExchangeRate[]>([]);
+const supportedCurrencies: BaseCurrency[] = [
+  "CNY",
+  "USD",
+  "JPY",
+  "EUR",
+  "GBP",
+  "HKD"
+];
+
+const baseCurrencyForm = reactive({
+  currency: "CNY"
+});
+
+const rateForm = reactive<ExchangeRateInput>({
+  from_currency: "CNY",
+  to_currency: "USD",
+  rate: 0.14,
+  note: ""
+});
+
+const isSameCurrencyRate = computed(
+  () => rateForm.from_currency === rateForm.to_currency
+);
 
 const stats = reactive<DatabaseStats>({
   accountCount: 0,
@@ -149,16 +299,79 @@ async function loadStats(): Promise<void> {
   statsLoading.value = true;
 
   try {
-    const [nextStats, nextAppDataInfo] = await Promise.all([
+    const [
+      nextStats,
+      nextAppDataInfo,
+      nextBaseCurrency,
+      nextExchangeRates
+    ] = await Promise.all([
       getDatabaseStats(),
-      getAppDataInfo()
+      getAppDataInfo(),
+      getBaseCurrency(),
+      listExchangeRates()
     ]);
     Object.assign(stats, nextStats);
     Object.assign(appDataInfo, nextAppDataInfo);
+    baseCurrencyForm.currency = nextBaseCurrency;
+    exchangeRates.value = nextExchangeRates;
   } catch (caughtError) {
     ElMessage.error(getErrorMessage(caughtError));
   } finally {
     statsLoading.value = false;
+  }
+}
+
+async function saveBaseCurrency(): Promise<void> {
+  savingBaseCurrency.value = true;
+
+  try {
+    await setBaseCurrency(baseCurrencyForm.currency);
+    ElMessage.success("基础币种已保存，Dashboard / Reports 会按该币种汇总");
+  } catch (caughtError) {
+    ElMessage.error(getErrorMessage(caughtError));
+  } finally {
+    savingBaseCurrency.value = false;
+  }
+}
+
+function openRateDialog(rate?: ExchangeRate): void {
+  if (rate) {
+    isLockedSameCurrencyRate.value = rate.from_currency === rate.to_currency;
+    Object.assign(rateForm, {
+      from_currency: rate.from_currency,
+      to_currency: rate.to_currency,
+      rate: rate.from_currency === rate.to_currency ? 1 : Number(rate.rate),
+      note: rate.note ?? ""
+    });
+  } else {
+    isLockedSameCurrencyRate.value = false;
+    Object.assign(rateForm, {
+      from_currency: "CNY",
+      to_currency:
+        baseCurrencyForm.currency === "CNY" ? "USD" : baseCurrencyForm.currency,
+      rate: 1,
+      note: ""
+    });
+  }
+
+  rateDialogVisible.value = true;
+}
+
+async function saveExchangeRate(): Promise<void> {
+  savingRate.value = true;
+
+  try {
+    await upsertExchangeRate({
+      ...rateForm,
+      rate: isSameCurrencyRate.value ? 1 : Number(rateForm.rate)
+    });
+    exchangeRates.value = await listExchangeRates();
+    rateDialogVisible.value = false;
+    ElMessage.success("汇率已保存");
+  } catch (caughtError) {
+    ElMessage.error(getErrorMessage(caughtError));
+  } finally {
+    savingRate.value = false;
   }
 }
 
@@ -258,6 +471,27 @@ function getErrorMessage(caughtError: unknown): string {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.currency-alert {
+  margin-bottom: 16px;
+}
+
+.base-currency-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.field-label {
+  font-weight: 650;
+}
+
+.currency-select,
+.dialog-input {
+  width: 220px;
 }
 
 .safety-alert :deep(.el-alert__content) {

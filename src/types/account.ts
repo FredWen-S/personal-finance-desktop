@@ -6,6 +6,11 @@ export interface Account {
   balance: number;
   institution?: string;
   note?: string;
+  credit_limit?: number;
+  statement_day?: number | null;
+  due_day?: number | null;
+  card_network?: string | null;
+  last_four?: string | null;
   is_active: number;
   created_at?: string;
   updated_at?: string;

@@ -22,15 +22,25 @@
       </div>
     </div>
 
+    <el-alert
+      v-if="loadError"
+      :title="loadError"
+      type="error"
+      show-icon
+      :closable="false"
+    />
+
     <div class="chart-grid">
       <el-card class="chart-card" shadow="never">
         <template #header>最近 6 个月现金流趋势</template>
+        <div class="chart-currency">{{ reportData.baseCurrency }}</div>
         <div v-show="hasCashFlowData" ref="cashFlowChartRef" class="chart" />
         <el-empty v-if="!hasCashFlowData" description="暂无现金流数据" />
       </el-card>
 
       <el-card class="chart-card" shadow="never">
         <template #header>本月支出分类占比</template>
+        <div class="chart-currency">{{ reportData.baseCurrency }}</div>
         <div v-show="reportData.expenseByCategory.length > 0" ref="expenseChartRef" class="chart" />
         <el-empty
           v-if="reportData.expenseByCategory.length === 0"
@@ -40,6 +50,7 @@
 
       <el-card class="chart-card" shadow="never">
         <template #header>账户余额分布</template>
+        <div class="chart-currency">{{ reportData.baseCurrency }}</div>
         <div v-show="reportData.accountBalances.length > 0" ref="accountChartRef" class="chart" />
         <el-empty
           v-if="reportData.accountBalances.length === 0"
@@ -67,6 +78,7 @@
 
       <el-card class="chart-card" shadow="never">
         <template #header>本月 Top 商户</template>
+        <div class="chart-currency">{{ reportData.baseCurrency }}</div>
         <div v-show="reportData.topMerchants.length > 0" ref="merchantChartRef" class="chart" />
         <el-empty
           v-if="reportData.topMerchants.length === 0"
@@ -153,8 +165,10 @@ type ChartInstance = echarts.ECharts;
 
 const loading = ref(false);
 const selectedMonth = ref(getCurrentMonth());
+const loadError = ref("");
 const reportData = reactive<ReportData>({
   month: selectedMonth.value,
+  baseCurrency: "CNY",
   monthlyCashFlow: [],
   expenseByCategory: [],
   accountBalances: [],
@@ -198,6 +212,7 @@ async function loadReports(): Promise<void> {
   loading.value = true;
 
   try {
+    loadError.value = "";
     const data = await getReportData(selectedMonth.value);
     Object.assign(reportData, data);
     await nextTick();
@@ -205,6 +220,7 @@ async function loadReports(): Promise<void> {
   } catch (caughtError) {
     const message =
       caughtError instanceof Error ? caughtError.message : String(caughtError);
+    loadError.value = message;
     ElMessage.error(message);
   } finally {
     loading.value = false;
@@ -306,7 +322,18 @@ function renderAccountChart(): void {
       {
         name: "余额",
         type: "bar",
-        data: reportData.accountBalances.map((item) => toFixedNumber(item.balance))
+        stack: "account-balance",
+        data: reportData.accountBalances.map((item) =>
+          toFixedNumber(item.asset_amount)
+        )
+      },
+      {
+        name: "信用卡/负债金额",
+        type: "bar",
+        stack: "account-balance",
+        data: reportData.accountBalances.map((item) =>
+          toFixedNumber(item.liability_amount)
+        )
       }
     ]
   });
@@ -496,6 +523,12 @@ function activityStatusLabel(status: string): string {
 .chart {
   width: 100%;
   height: 320px;
+}
+
+.chart-currency {
+  margin-bottom: 8px;
+  color: #6b7280;
+  font-size: 13px;
 }
 
 .table-grid {

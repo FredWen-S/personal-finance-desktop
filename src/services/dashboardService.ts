@@ -2,6 +2,7 @@ import { getDatabase } from "./db";
 import type {
   AccountSummary,
   ActivitySummary,
+  CreditCardOverviewItem,
   DashboardData,
   DashboardRecentTransaction,
   MonthlyTransactionSummary,
@@ -9,33 +10,58 @@ import type {
 } from "../types/dashboard";
 import type { Activity } from "../types/activity";
 import type { PointProgram } from "../types/points";
+import { convertAmount, getBaseCurrency } from "./currencyService";
 
 export async function getAccountSummary(): Promise<AccountSummary> {
   const db = await getDatabase();
-  const rows = await db.select<
+  const baseCurrency = await getBaseCurrency();
+  const accounts = await db.select<
     Array<{
-      totalAssets: number | null;
-      totalLiabilities: number | null;
-      netWorth: number | null;
-      activeAccountCount: number;
+      type: string;
+      balance: number;
+      currency: string;
     }>
   >(
     `SELECT
-      COALESCE(SUM(CASE WHEN balance > 0 THEN balance ELSE 0 END), 0) AS totalAssets,
-      COALESCE(SUM(CASE WHEN balance < 0 THEN -balance ELSE 0 END), 0) AS totalLiabilities,
-      COALESCE(SUM(balance), 0) AS netWorth,
-      COUNT(*) AS activeAccountCount
+      type,
+      balance,
+      currency
     FROM accounts
     WHERE is_active = 1`
   );
 
-  const row = rows[0];
+  let totalAssets = 0;
+  let totalLiabilities = 0;
+
+  for (const account of accounts) {
+    const convertedBalance = await convertAmount(
+      Number(account.balance ?? 0),
+      account.currency,
+      baseCurrency
+    );
+
+    if (account.type === "credit_card") {
+      if (convertedBalance > 0) {
+        totalLiabilities += convertedBalance;
+      } else if (convertedBalance < 0) {
+        totalAssets += Math.abs(convertedBalance);
+      }
+    } else {
+      if (convertedBalance > 0) {
+        totalAssets += convertedBalance;
+      } else if (convertedBalance < 0) {
+        totalLiabilities += Math.abs(convertedBalance);
+      }
+    }
+  }
 
   return {
-    totalAssets: Number(row?.totalAssets ?? 0),
-    totalLiabilities: Number(row?.totalLiabilities ?? 0),
-    netWorth: Number(row?.netWorth ?? 0),
-    activeAccountCount: Number(row?.activeAccountCount ?? 0)
+    totalAssets,
+    totalLiabilities,
+    netWorth: totalAssets - totalLiabilities,
+    activeAccountCount: accounts.length,
+    baseCurrency,
+    liabilityNote: "信用卡账户余额按欠款处理，计入负债。"
   };
 }
 
@@ -43,31 +69,50 @@ export async function getMonthlyTransactionSummary(
   month: string
 ): Promise<MonthlyTransactionSummary> {
   const db = await getDatabase();
-  const rows = await db.select<
+  const baseCurrency = await getBaseCurrency();
+  const transactions = await db.select<
     Array<{
-      monthlyIncome: number | null;
-      monthlyExpense: number | null;
-      transactionCount: number;
+      type: string;
+      amount: number;
+      currency: string;
     }>
   >(
     `SELECT
-      COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS monthlyIncome,
-      COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS monthlyExpense,
-      COUNT(*) AS transactionCount
+      type,
+      amount,
+      currency
     FROM transactions
     WHERE substr(date, 1, 7) = $1`,
     [month]
   );
 
-  const row = rows[0];
-  const monthlyIncome = Number(row?.monthlyIncome ?? 0);
-  const monthlyExpense = Number(row?.monthlyExpense ?? 0);
+  let monthlyIncome = 0;
+  let monthlyExpense = 0;
+
+  for (const transaction of transactions) {
+    if (transaction.type === "income") {
+      const convertedAmount = await convertAmount(
+        Number(transaction.amount ?? 0),
+        transaction.currency,
+        baseCurrency
+      );
+      monthlyIncome += convertedAmount;
+    } else if (transaction.type === "expense") {
+      const convertedAmount = await convertAmount(
+        Number(transaction.amount ?? 0),
+        transaction.currency,
+        baseCurrency
+      );
+      monthlyExpense += convertedAmount;
+    }
+  }
 
   return {
     monthlyIncome,
     monthlyExpense,
     monthlyNet: monthlyIncome - monthlyExpense,
-    transactionCount: Number(row?.transactionCount ?? 0)
+    transactionCount: transactions.length,
+    baseCurrency
   };
 }
 
@@ -220,6 +265,51 @@ export async function getRecentTransactions(
   );
 }
 
+export async function getCreditCardOverview(): Promise<CreditCardOverviewItem[]> {
+  const db = await getDatabase();
+  const rows = await db.select<
+    Array<{
+      id?: number;
+      name: string;
+      currency: string;
+      balance: number;
+      credit_limit?: number | null;
+      statement_day?: number | null;
+      due_day?: number | null;
+    }>
+  >(
+    `SELECT
+      id,
+      name,
+      currency,
+      balance,
+      credit_limit,
+      statement_day,
+      due_day
+    FROM accounts
+    WHERE is_active = 1
+      AND type = 'credit_card'
+    ORDER BY name ASC, id DESC`
+  );
+
+  return rows.map((row) => {
+    const balance = Number(row.balance ?? 0);
+    const creditLimit = Number(row.credit_limit ?? 0);
+    const currentDebt = balance > 0 ? balance : 0;
+
+    return {
+      id: row.id,
+      name: row.name,
+      currency: row.currency,
+      current_debt: currentDebt,
+      credit_limit: creditLimit,
+      available_credit: creditLimit - currentDebt,
+      statement_day: row.statement_day ?? null,
+      due_day: row.due_day ?? null
+    };
+  });
+}
+
 export async function getDashboardData(): Promise<DashboardData> {
   const month = getCurrentMonth();
   const [
@@ -227,13 +317,15 @@ export async function getDashboardData(): Promise<DashboardData> {
     monthlyTransactionSummary,
     pointSummary,
     activitySummary,
-    recentTransactions
+    recentTransactions,
+    creditCardOverview
   ] = await Promise.all([
     getAccountSummary(),
     getMonthlyTransactionSummary(month),
     getPointSummary(),
     getActivitySummary(),
-    getRecentTransactions(10)
+    getRecentTransactions(10),
+    getCreditCardOverview()
   ]);
 
   return {
@@ -242,7 +334,8 @@ export async function getDashboardData(): Promise<DashboardData> {
     monthlyTransactionSummary,
     pointSummary,
     activitySummary,
-    recentTransactions
+    recentTransactions,
+    creditCardOverview
   };
 }
 

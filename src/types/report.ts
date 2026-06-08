@@ -3,11 +3,13 @@ export interface MonthlyCashFlowItem {
   income: number;
   expense: number;
   net: number;
+  base_currency: string;
 }
 
 export interface ExpenseCategoryItem {
   category: string;
   amount: number;
+  base_currency: string;
 }
 
 export interface AccountBalanceReportItem {
@@ -15,6 +17,11 @@ export interface AccountBalanceReportItem {
   type: string;
   currency: string;
   balance: number;
+  converted_balance: number;
+  asset_amount: number;
+  liability_amount: number;
+  balance_role: "asset" | "liability";
+  base_currency: string;
   institution?: string | null;
 }
 
@@ -42,10 +49,12 @@ export interface ActivityCategoryReportItem {
 export interface TopMerchantItem {
   merchant: string;
   amount: number;
+  base_currency: string;
 }
 
 export interface ReportData {
   month: string;
+  baseCurrency: string;
   monthlyCashFlow: MonthlyCashFlowItem[];
   expenseByCategory: ExpenseCategoryItem[];
   accountBalances: AccountBalanceReportItem[];
