@@ -10,7 +10,11 @@ import type {
 } from "../types/dashboard";
 import type { Activity } from "../types/activity";
 import type { PointProgram } from "../types/points";
+import type { SubscriptionDashboardSummary } from "../types/dashboard";
 import { convertAmount, getBaseCurrency } from "./currencyService";
+import { listSubscriptions, listUpcomingSubscriptions } from "./subscriptionService";
+import { getBudgetSummary } from "./budgetService";
+import type { BillingCycle } from "../types/subscription";
 
 export async function getAccountSummary(): Promise<AccountSummary> {
   const db = await getDatabase();
@@ -310,6 +314,49 @@ export async function getCreditCardOverview(): Promise<CreditCardOverviewItem[]>
   });
 }
 
+export async function getSubscriptionDashboardSummary(): Promise<SubscriptionDashboardSummary> {
+  const baseCurrency = await getBaseCurrency();
+  const [subscriptions, upcomingSubscriptions] = await Promise.all([
+    listSubscriptions(),
+    listUpcomingSubscriptions(30)
+  ]);
+  let monthlySubscriptionCost = 0;
+
+  for (const subscription of subscriptions) {
+    if (!["active", "trial"].includes(subscription.status)) {
+      continue;
+    }
+
+    const monthlyAmount = getMonthlyEquivalent(
+      Number(subscription.amount ?? 0),
+      subscription.billing_cycle
+    );
+    monthlySubscriptionCost += await convertAmount(
+      monthlyAmount,
+      subscription.currency,
+      baseCurrency
+    );
+  }
+
+  return {
+    upcomingSubscriptions,
+    monthlySubscriptionCost,
+    baseCurrency
+  };
+}
+
+function getMonthlyEquivalent(amount: number, cycle: BillingCycle): number {
+  const multipliers: Record<BillingCycle, number> = {
+    weekly: 52 / 12,
+    monthly: 1,
+    quarterly: 1 / 3,
+    yearly: 1 / 12,
+    custom: 1
+  };
+
+  return amount * multipliers[cycle];
+}
+
 export async function getDashboardData(): Promise<DashboardData> {
   const month = getCurrentMonth();
   const [
@@ -318,14 +365,18 @@ export async function getDashboardData(): Promise<DashboardData> {
     pointSummary,
     activitySummary,
     recentTransactions,
-    creditCardOverview
+    creditCardOverview,
+    subscriptionSummary,
+    budgetSummary
   ] = await Promise.all([
     getAccountSummary(),
     getMonthlyTransactionSummary(month),
     getPointSummary(),
     getActivitySummary(),
     getRecentTransactions(10),
-    getCreditCardOverview()
+    getCreditCardOverview(),
+    getSubscriptionDashboardSummary(),
+    getBudgetSummary(month)
   ]);
 
   return {
@@ -335,7 +386,9 @@ export async function getDashboardData(): Promise<DashboardData> {
     pointSummary,
     activitySummary,
     recentTransactions,
-    creditCardOverview
+    creditCardOverview,
+    subscriptionSummary,
+    budgetSummary
   };
 }
 

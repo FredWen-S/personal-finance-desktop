@@ -52,6 +52,25 @@ export interface TopMerchantItem {
   base_currency: string;
 }
 
+export interface SubscriptionCategoryReportItem {
+  category: string;
+  amount: number;
+  count: number;
+  base_currency: string;
+}
+
+export interface SubscriptionCycleReportItem {
+  billing_cycle: string;
+  count: number;
+}
+
+export interface BudgetVsActualReportItem {
+  category: string;
+  budget_amount: number;
+  actual_amount: number;
+  base_currency: string;
+}
+
 export interface ReportData {
   month: string;
   baseCurrency: string;
@@ -62,4 +81,7 @@ export interface ReportData {
   activityStatuses: ActivityStatusReportItem[];
   activityCategories: ActivityCategoryReportItem[];
   topMerchants: TopMerchantItem[];
+  subscriptionCategories: SubscriptionCategoryReportItem[];
+  subscriptionCycles: SubscriptionCycleReportItem[];
+  budgetVsActual: BudgetVsActualReportItem[];
 }

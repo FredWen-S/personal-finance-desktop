@@ -85,9 +85,56 @@
           description="暂无本月商户消费数据"
         />
       </el-card>
+
+      <el-card class="chart-card" shadow="never">
+        <template #header>预算 vs 实际支出</template>
+        <div class="chart-currency">{{ reportData.baseCurrency }}</div>
+        <div
+          v-show="reportData.budgetVsActual.length > 0"
+          ref="budgetChartRef"
+          class="chart"
+        />
+        <el-empty
+          v-if="reportData.budgetVsActual.length === 0"
+          description="暂无预算数据"
+        />
+      </el-card>
     </div>
 
     <div class="table-grid">
+      <el-card class="section-card" shadow="never">
+        <template #header>
+          <div class="section-header">
+            <span>Subscription Spending Overview</span>
+            <el-tag effect="plain">{{ reportData.baseCurrency }}</el-tag>
+          </div>
+        </template>
+
+        <el-empty
+          v-if="
+            reportData.subscriptionCategories.length === 0 &&
+            reportData.subscriptionCycles.length === 0
+          "
+          description="No subscription data"
+        />
+        <div v-else class="subscription-report-grid">
+          <el-table :data="reportData.subscriptionCategories" stripe>
+            <el-table-column prop="category" label="Category" min-width="130" />
+            <el-table-column prop="count" label="Count" width="90" align="right" />
+            <el-table-column label="Amount" width="130" align="right">
+              <template #default="{ row }">
+                {{ formatMoney(row.amount) }}
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <el-table :data="reportData.subscriptionCycles" stripe>
+            <el-table-column prop="billing_cycle" label="Billing cycle" min-width="130" />
+            <el-table-column prop="count" label="Count" width="90" align="right" />
+          </el-table>
+        </div>
+      </el-card>
+
       <el-card class="section-card" shadow="never">
         <template #header>
           <div class="section-header">
@@ -175,7 +222,10 @@ const reportData = reactive<ReportData>({
   pointValues: [],
   activityStatuses: [],
   activityCategories: [],
-  topMerchants: []
+  topMerchants: [],
+  subscriptionCategories: [],
+  subscriptionCycles: [],
+  budgetVsActual: []
 });
 
 const cashFlowChartRef = ref<HTMLDivElement>();
@@ -184,6 +234,7 @@ const accountChartRef = ref<HTMLDivElement>();
 const pointChartRef = ref<HTMLDivElement>();
 const activityStatusChartRef = ref<HTMLDivElement>();
 const merchantChartRef = ref<HTMLDivElement>();
+const budgetChartRef = ref<HTMLDivElement>();
 
 let cashFlowChart: ChartInstance | null = null;
 let expenseChart: ChartInstance | null = null;
@@ -191,6 +242,7 @@ let accountChart: ChartInstance | null = null;
 let pointChart: ChartInstance | null = null;
 let activityStatusChart: ChartInstance | null = null;
 let merchantChart: ChartInstance | null = null;
+let budgetChart: ChartInstance | null = null;
 
 const hasCashFlowData = computed(() =>
   reportData.monthlyCashFlow.some(
@@ -238,6 +290,7 @@ function renderCharts(): void {
   renderPointChart();
   renderActivityStatusChart();
   renderMerchantChart();
+  renderBudgetChart();
 }
 
 function renderCashFlowChart(): void {
@@ -421,6 +474,42 @@ function renderMerchantChart(): void {
   });
 }
 
+function renderBudgetChart(): void {
+  if (!budgetChartRef.value || reportData.budgetVsActual.length === 0) {
+    budgetChart?.clear();
+    return;
+  }
+
+  budgetChart = ensureChart(budgetChart, budgetChartRef.value);
+  budgetChart.setOption({
+    tooltip: { trigger: "axis" },
+    legend: { top: 0 },
+    grid: { left: 56, right: 24, top: 48, bottom: 64 },
+    xAxis: {
+      type: "category",
+      axisLabel: { interval: 0, rotate: 30 },
+      data: reportData.budgetVsActual.map((item) => item.category)
+    },
+    yAxis: { type: "value" },
+    series: [
+      {
+        name: "预算",
+        type: "bar",
+        data: reportData.budgetVsActual.map((item) =>
+          toFixedNumber(item.budget_amount)
+        )
+      },
+      {
+        name: "实际支出",
+        type: "bar",
+        data: reportData.budgetVsActual.map((item) =>
+          toFixedNumber(item.actual_amount)
+        )
+      }
+    ]
+  });
+}
+
 function ensureChart(
   chart: ChartInstance | null,
   element: HTMLDivElement
@@ -435,6 +524,7 @@ function resizeCharts(): void {
   pointChart?.resize();
   activityStatusChart?.resize();
   merchantChart?.resize();
+  budgetChart?.resize();
 }
 
 function disposeCharts(): void {
@@ -444,6 +534,7 @@ function disposeCharts(): void {
   pointChart?.dispose();
   activityStatusChart?.dispose();
   merchantChart?.dispose();
+  budgetChart?.dispose();
 
   cashFlowChart = null;
   expenseChart = null;
@@ -451,6 +542,7 @@ function disposeCharts(): void {
   pointChart = null;
   activityStatusChart = null;
   merchantChart = null;
+  budgetChart = null;
 }
 
 function formatMoney(value: number): string {
@@ -537,6 +629,12 @@ function activityStatusLabel(status: string): string {
   gap: 16px;
 }
 
+.subscription-report-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
+  gap: 16px;
+}
+
 .section-header {
   display: flex;
   align-items: center;
@@ -551,7 +649,8 @@ function activityStatusLabel(status: string): string {
 
 @media (max-width: 1100px) {
   .chart-grid,
-  .table-grid {
+  .table-grid,
+  .subscription-report-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -69,44 +69,59 @@ export async function createTransaction(
   await db.execute("BEGIN");
 
   try {
-    await applyBalanceImpact(input);
-
-    await db.execute(
-      `INSERT INTO transactions (
-        type,
-        account_id,
-        target_account_id,
-        date,
-        amount,
-        currency,
-        category,
-        merchant,
-        description,
-        is_reimbursable,
-        created_at,
-        updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [
-        input.type,
-        input.account_id,
-        input.target_account_id ?? null,
-        input.date,
-        input.amount,
-        input.currency,
-        input.category,
-        input.merchant ?? null,
-        input.description ?? null,
-        input.is_reimbursable,
-        now,
-        now
-      ]
-    );
-
+    await createTransactionInOpenTransaction(input, now);
     await db.execute("COMMIT");
   } catch (error) {
     await db.execute("ROLLBACK");
     throw error;
   }
+}
+
+export async function createTransactionInOpenTransaction(
+  input: TransactionInput,
+  timestamp = new Date().toISOString()
+): Promise<number> {
+  validateTransactionInput(input);
+
+  const db = await getDatabase();
+  await applyBalanceImpact(input);
+
+  await db.execute(
+    `INSERT INTO transactions (
+      type,
+      account_id,
+      target_account_id,
+      date,
+      amount,
+      currency,
+      category,
+      merchant,
+      description,
+      is_reimbursable,
+      created_at,
+      updated_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+    [
+      input.type,
+      input.account_id,
+      input.target_account_id ?? null,
+      input.date,
+      input.amount,
+      input.currency,
+      input.category,
+      input.merchant ?? null,
+      input.description ?? null,
+      input.is_reimbursable,
+      timestamp,
+      timestamp
+    ]
+  );
+
+  const rows = await db.select<Array<{ id: number }>>(
+    "SELECT last_insert_rowid() AS id"
+  );
+
+  return Number(rows[0]?.id ?? 0);
 }
 
 export async function updateTransaction(

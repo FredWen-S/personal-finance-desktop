@@ -1,12 +1,21 @@
 import { getDatabase } from "./db";
+import {
+  appConfigDir,
+  appDataDir,
+  appLocalDataDir,
+  join
+} from "@tauri-apps/api/path";
+import { BaseDirectory, exists } from "@tauri-apps/plugin-fs";
 import type {
+  AppDataInfo,
   BackupPayload,
   DatabaseStats,
   TableExportName
 } from "../types/settings";
 
 const APP_NAME = "Personal Finance Manager";
-const APP_VERSION = "0.1.0";
+const APP_VERSION = "0.2.1";
+const DATABASE_NAME = "finance.db";
 
 const TABLE_COLUMNS: Record<TableExportName, string[]> = {
   accounts: [
@@ -83,6 +92,46 @@ const TABLE_COLUMNS: Record<TableExportName, string[]> = {
     "note",
     "created_at",
     "updated_at"
+  ],
+  subscriptions: [
+    "id",
+    "name",
+    "provider",
+    "category",
+    "account_id",
+    "amount",
+    "currency",
+    "billing_cycle",
+    "start_date",
+    "next_billing_date",
+    "trial_end_date",
+    "status",
+    "auto_renew",
+    "reminder_days",
+    "url",
+    "note",
+    "created_at",
+    "updated_at"
+  ],
+  subscription_payments: [
+    "id",
+    "subscription_id",
+    "transaction_id",
+    "paid_date",
+    "amount",
+    "currency",
+    "note",
+    "created_at"
+  ],
+  budgets: [
+    "id",
+    "month",
+    "category",
+    "amount",
+    "base_currency",
+    "note",
+    "created_at",
+    "updated_at"
   ]
 };
 
@@ -97,6 +146,9 @@ export async function getDatabaseStats(): Promise<DatabaseStats> {
       pointProgramCount: number;
       pointTransactionCount: number;
       activityCount: number;
+      subscriptionCount: number;
+      subscriptionPaymentCount: number;
+      budgetCount: number;
       activeAccountCount: number;
       activePointProgramCount: number;
     }>
@@ -107,6 +159,9 @@ export async function getDatabaseStats(): Promise<DatabaseStats> {
       (SELECT COUNT(*) FROM point_programs) AS pointProgramCount,
       (SELECT COUNT(*) FROM point_transactions) AS pointTransactionCount,
       (SELECT COUNT(*) FROM activities) AS activityCount,
+      (SELECT COUNT(*) FROM subscriptions) AS subscriptionCount,
+      (SELECT COUNT(*) FROM subscription_payments) AS subscriptionPaymentCount,
+      (SELECT COUNT(*) FROM budgets) AS budgetCount,
       (SELECT COUNT(*) FROM accounts WHERE is_active = 1) AS activeAccountCount,
       (SELECT COUNT(*) FROM point_programs WHERE is_active = 1) AS activePointProgramCount`
   );
@@ -119,6 +174,9 @@ export async function getDatabaseStats(): Promise<DatabaseStats> {
     pointProgramCount: Number(row?.pointProgramCount ?? 0),
     pointTransactionCount: Number(row?.pointTransactionCount ?? 0),
     activityCount: Number(row?.activityCount ?? 0),
+    subscriptionCount: Number(row?.subscriptionCount ?? 0),
+    subscriptionPaymentCount: Number(row?.subscriptionPaymentCount ?? 0),
+    budgetCount: Number(row?.budgetCount ?? 0),
     activeAccountCount: Number(row?.activeAccountCount ?? 0),
     activePointProgramCount: Number(row?.activePointProgramCount ?? 0)
   };
@@ -130,13 +188,19 @@ export async function exportAllData(): Promise<BackupPayload> {
     transactions,
     pointPrograms,
     pointTransactions,
-    activities
+    activities,
+    subscriptions,
+    subscriptionPayments,
+    budgets
   ] = await Promise.all([
     exportTableData("accounts"),
     exportTableData("transactions"),
     exportTableData("point_programs"),
     exportTableData("point_transactions"),
-    exportTableData("activities")
+    exportTableData("activities"),
+    exportTableData("subscriptions"),
+    exportTableData("subscription_payments"),
+    exportTableData("budgets")
   ]);
 
   return {
@@ -148,7 +212,10 @@ export async function exportAllData(): Promise<BackupPayload> {
       transactions,
       point_programs: pointPrograms,
       point_transactions: pointTransactions,
-      activities
+      activities,
+      subscriptions,
+      subscription_payments: subscriptionPayments,
+      budgets
     }
   };
 }
@@ -188,15 +255,41 @@ export async function createTableCsv(tableName: TableExportName): Promise<string
   return rowsToCsv(TABLE_COLUMNS[tableName], rows);
 }
 
-export async function getAppDataInfo(): Promise<{
-  databaseName: string;
-  note: string;
-  databasePath?: string;
-}> {
+export async function getAppDataInfo(): Promise<AppDataInfo> {
+  const [nextAppDataDir, nextAppLocalDataDir, nextAppConfigDir] =
+    await Promise.all([appDataDir(), appLocalDataDir(), appConfigDir()]);
+  const detectedDatabasePath = await detectDatabasePath([
+    { directory: nextAppDataDir, baseDir: BaseDirectory.AppData },
+    { directory: nextAppLocalDataDir, baseDir: BaseDirectory.AppLocalData },
+    { directory: nextAppConfigDir, baseDir: BaseDirectory.AppConfig }
+  ]);
+
   return {
-    databaseName: "finance.db",
-    note: "数据库由 Tauri SQL 插件存放在应用数据目录中。本阶段不硬编码用户本机路径。"
+    databaseName: DATABASE_NAME,
+    appDataDir: nextAppDataDir,
+    appLocalDataDir: nextAppLocalDataDir,
+    appConfigDir: nextAppConfigDir,
+    detectedDatabasePath,
+    note:
+      "SQLite 数据库由 Tauri SQL 插件按 `sqlite:finance.db` 管理，实际落点可能依赖 Tauri 平台目录策略。未检测到已存在的 finance.db 时，应用会在首次连接数据库时创建。"
   };
+}
+
+async function detectDatabasePath(
+  candidates: Array<{ directory: string; baseDir: BaseDirectory }>
+): Promise<string | undefined> {
+  for (const { directory, baseDir } of candidates) {
+    const candidatePath = await join(directory, DATABASE_NAME);
+    const candidateExists = await exists(DATABASE_NAME, { baseDir }).catch(
+      () => false
+    );
+
+    if (candidateExists) {
+      return candidatePath;
+    }
+  }
+
+  return undefined;
 }
 
 function assertTableName(tableName: TableExportName): void {

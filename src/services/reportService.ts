@@ -3,13 +3,17 @@ import type {
   AccountBalanceReportItem,
   ActivityCategoryReportItem,
   ActivityStatusReportItem,
+  BudgetVsActualReportItem,
   ExpenseCategoryItem,
   MonthlyCashFlowItem,
   PointValueReportItem,
   ReportData,
+  SubscriptionCategoryReportItem,
+  SubscriptionCycleReportItem,
   TopMerchantItem
 } from "../types/report";
 import { convertAmount, getBaseCurrency } from "./currencyService";
+import { getBudgetUsage } from "./budgetService";
 
 export async function getMonthlyCashFlow(
   months: number
@@ -284,6 +288,76 @@ export async function getTopMerchants(
     .slice(0, safeLimit);
 }
 
+export async function getSubscriptionCategoryReport(): Promise<
+  SubscriptionCategoryReportItem[]
+> {
+  const db = await getDatabase();
+  const baseCurrency = await getBaseCurrency();
+  const rows = await db.select<
+    Array<{ category: string; amount: number; currency: string }>
+  >(
+    `SELECT
+      category,
+      amount,
+      currency
+    FROM subscriptions
+    WHERE status IN ('active', 'trial')
+    ORDER BY category ASC, id ASC`
+  );
+  const totals = new Map<string, { amount: number; count: number }>();
+
+  for (const row of rows) {
+    const convertedAmount = await convertAmount(
+      Number(row.amount ?? 0),
+      row.currency,
+      baseCurrency
+    );
+    const current = totals.get(row.category) ?? { amount: 0, count: 0 };
+    current.amount += convertedAmount;
+    current.count += 1;
+    totals.set(row.category, current);
+  }
+
+  return [...totals.entries()]
+    .map(([category, value]) => ({
+      category,
+      amount: value.amount,
+      count: value.count,
+      base_currency: baseCurrency
+    }))
+    .sort((left, right) => right.amount - left.amount);
+}
+
+export async function getSubscriptionCycleReport(): Promise<
+  SubscriptionCycleReportItem[]
+> {
+  const db = await getDatabase();
+
+  return db.select<SubscriptionCycleReportItem[]>(
+    `SELECT
+      billing_cycle,
+      COUNT(*) AS count
+    FROM subscriptions
+    GROUP BY billing_cycle
+    ORDER BY count DESC, billing_cycle ASC`
+  );
+}
+
+export async function getBudgetVsActualReport(
+  month: string
+): Promise<BudgetVsActualReportItem[]> {
+  const usageRows = await getBudgetUsage(month);
+
+  return usageRows
+    .map((usage) => ({
+      category: usage.category,
+      budget_amount: usage.budget_amount,
+      actual_amount: usage.actual_amount,
+      base_currency: usage.base_currency
+    }))
+    .sort((left, right) => right.budget_amount - left.budget_amount);
+}
+
 export async function getReportData(month: string): Promise<ReportData> {
   const baseCurrency = await getBaseCurrency();
   const [
@@ -293,7 +367,10 @@ export async function getReportData(month: string): Promise<ReportData> {
     pointValues,
     activityStatuses,
     activityCategories,
-    topMerchants
+    topMerchants,
+    subscriptionCategories,
+    subscriptionCycles,
+    budgetVsActual
   ] = await Promise.all([
     getMonthlyCashFlow(6),
     getExpenseByCategory(month),
@@ -301,7 +378,10 @@ export async function getReportData(month: string): Promise<ReportData> {
     getPointValueReport(),
     getActivityStatusReport(),
     getActivityCategoryReport(),
-    getTopMerchants(month, 10)
+    getTopMerchants(month, 10),
+    getSubscriptionCategoryReport(),
+    getSubscriptionCycleReport(),
+    getBudgetVsActualReport(month)
   ]);
 
   return {
@@ -313,7 +393,10 @@ export async function getReportData(month: string): Promise<ReportData> {
     pointValues,
     activityStatuses,
     activityCategories,
-    topMerchants
+    topMerchants,
+    subscriptionCategories,
+    subscriptionCycles,
+    budgetVsActual
   };
 }
 

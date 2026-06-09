@@ -6,6 +6,14 @@
   "permissions": [
     "core:default",
     "dialog:allow-save",
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [
+        { "path": "$APPDATA/finance.db" },
+        { "path": "$APPLOCALDATA/finance.db" },
+        { "path": "$APPCONFIG/finance.db" }
+      ]
+    },
     "fs:allow-write-text-file",
     "sql:default",
     "sql:allow-execute",

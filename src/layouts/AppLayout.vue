@@ -48,6 +48,8 @@ import {
   Calendar,
   CreditCard,
   DataAnalysis,
+  Money,
+  Refresh,
   House,
   List,
   Setting,
@@ -62,6 +64,8 @@ const menuItems = [
   { path: "/transactions", label: "Transactions", icon: List },
   { path: "/points", label: "Points", icon: Trophy },
   { path: "/activities", label: "Activities", icon: Calendar },
+  { path: "/subscriptions", label: "Subscriptions", icon: Refresh },
+  { path: "/budgets", label: "Budgets", icon: Money },
   { path: "/reports", label: "Reports", icon: DataAnalysis },
   { path: "/settings", label: "Settings", icon: Setting }
 ];

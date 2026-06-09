@@ -76,6 +76,80 @@
       </el-table>
     </el-card>
 
+    <el-card class="section-card" shadow="never">
+      <template #header>
+        <div class="section-header">
+          <span>本月预算</span>
+          <el-tag effect="plain">{{ dashboardData?.budgetSummary.baseCurrency ?? "" }}</el-tag>
+        </div>
+      </template>
+
+      <div class="budget-overview-grid">
+        <el-statistic
+          title="总预算"
+          :value="dashboardData?.budgetSummary.totalBudget ?? 0"
+          :precision="2"
+        />
+        <el-statistic
+          title="实际支出"
+          :value="dashboardData?.budgetSummary.actualSpending ?? 0"
+          :precision="2"
+        />
+        <el-statistic
+          title="剩余额度"
+          :value="dashboardData?.budgetSummary.remainingBudget ?? 0"
+          :precision="2"
+        />
+        <el-statistic
+          title="使用率"
+          :value="dashboardData?.budgetSummary.usagePercent ?? 0"
+          :precision="2"
+        />
+        <el-statistic
+          title="超预算分类"
+          :value="dashboardData?.budgetSummary.exceededCategoryCount ?? 0"
+        />
+        <el-statistic
+          title="未预算支出"
+          :value="dashboardData?.budgetSummary.unbudgetedSpending ?? 0"
+          :precision="2"
+        />
+      </div>
+    </el-card>
+
+    <el-card class="section-card" shadow="never">
+      <template #header>
+        <div class="section-header">
+          <span>Upcoming Subscriptions</span>
+          <el-tag effect="plain">Next 30 days</el-tag>
+        </div>
+      </template>
+
+      <el-empty
+        v-if="upcomingSubscriptions.length === 0"
+        description="No upcoming subscription charges"
+      />
+      <el-table v-else :data="upcomingSubscriptions" stripe>
+        <el-table-column prop="name" label="Name" min-width="170" show-overflow-tooltip />
+        <el-table-column prop="provider" label="Provider" min-width="140">
+          <template #default="{ row }">
+            {{ row.provider || "-" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="Amount" width="140" align="right">
+          <template #default="{ row }">
+            {{ formatMoney(row.amount) }} {{ row.currency }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="next_billing_date" label="Next billing" width="130" />
+        <el-table-column label="Account" min-width="140">
+          <template #default="{ row }">
+            {{ row.account_name || "-" }}
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <div class="summary-grid benefit-grid">
       <el-card shadow="never">
         <el-statistic
@@ -270,6 +344,18 @@ const financeCards = computed(() => [
   {
     label: "本月净流入",
     value: dashboardData.value?.monthlyTransactionSummary.monthlyNet ?? 0
+  },
+  {
+    label: "Monthly subscriptions",
+    value: dashboardData.value?.subscriptionSummary.monthlySubscriptionCost ?? 0
+  },
+  {
+    label: "本月总预算",
+    value: dashboardData.value?.budgetSummary.totalBudget ?? 0
+  },
+  {
+    label: "预算实际支出",
+    value: dashboardData.value?.budgetSummary.actualSpending ?? 0
   }
 ].map((card) => ({
   ...card,
@@ -287,6 +373,9 @@ const expiringPointPrograms = computed(
 );
 const creditCardOverview = computed(
   () => dashboardData.value?.creditCardOverview ?? []
+);
+const upcomingSubscriptions = computed(
+  () => dashboardData.value?.subscriptionSummary.upcomingSubscriptions ?? []
 );
 
 onMounted(() => {
@@ -421,13 +510,20 @@ function getCurrentMonth(): string {
   font-weight: 650;
 }
 
+.budget-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
 :deep(.el-card__body) {
   overflow-x: auto;
 }
 
 @media (max-width: 1200px) {
   .finance-grid,
-  .benefit-grid {
+  .benefit-grid,
+  .budget-overview-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -440,7 +536,8 @@ function getCurrentMonth(): string {
   }
 
   .finance-grid,
-  .benefit-grid {
+  .benefit-grid,
+  .budget-overview-grid {
     grid-template-columns: 1fr;
   }
 }

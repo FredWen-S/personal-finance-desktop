@@ -45,6 +45,18 @@ pub fn run() {
             sql: include_str!("../migrations/007_add_credit_card_fields.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 8,
+            description: "add_subscriptions",
+            sql: include_str!("../migrations/008_add_subscriptions.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 9,
+            description: "add_budgets",
+            sql: include_str!("../migrations/009_add_budgets.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

@@ -1,5 +1,7 @@
 import type { Activity } from "./activity";
+import type { BudgetSummary } from "./budget";
 import type { PointProgram } from "./points";
+import type { Subscription } from "./subscription";
 import type { TransactionType } from "./transaction";
 
 export interface AccountSummary {
@@ -59,6 +61,12 @@ export interface CreditCardOverviewItem {
   due_day?: number | null;
 }
 
+export interface SubscriptionDashboardSummary {
+  upcomingSubscriptions: Subscription[];
+  monthlySubscriptionCost: number;
+  baseCurrency: string;
+}
+
 export interface DashboardData {
   month: string;
   accountSummary: AccountSummary;
@@ -67,4 +75,6 @@ export interface DashboardData {
   activitySummary: ActivitySummary;
   recentTransactions: DashboardRecentTransaction[];
   creditCardOverview: CreditCardOverviewItem[];
+  subscriptionSummary: SubscriptionDashboardSummary;
+  budgetSummary: BudgetSummary;
 }

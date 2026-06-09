@@ -23,6 +23,23 @@
         <el-descriptions-item label="数据库名称">
           {{ appDataInfo.databaseName }}
         </el-descriptions-item>
+        <el-descriptions-item label="appDataDir" :span="3">
+          <span class="path-value">{{ appDataInfo.appDataDir || "-" }}</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="appLocalDataDir" :span="3">
+          <span class="path-value">{{ appDataInfo.appLocalDataDir || "-" }}</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="appConfigDir" :span="3">
+          <span class="path-value">{{ appDataInfo.appConfigDir || "-" }}</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="detectedDatabasePath" :span="3">
+          <span class="path-value">
+            {{
+              appDataInfo.detectedDatabasePath ||
+              "未检测到已存在的 finance.db；应用会在首次连接数据库时创建"
+            }}
+          </span>
+        </el-descriptions-item>
         <el-descriptions-item label="账户数量">
           {{ stats.accountCount }}
         </el-descriptions-item>
@@ -37,6 +54,15 @@
         </el-descriptions-item>
         <el-descriptions-item label="活动数量">
           {{ stats.activityCount }}
+        </el-descriptions-item>
+        <el-descriptions-item label="订阅数量">
+          {{ stats.subscriptionCount }}
+        </el-descriptions-item>
+        <el-descriptions-item label="订阅支付数量">
+          {{ stats.subscriptionPaymentCount }}
+        </el-descriptions-item>
+        <el-descriptions-item label="预算数量">
+          {{ stats.budgetCount }}
         </el-descriptions-item>
         <el-descriptions-item label="启用账户数量">
           {{ stats.activeAccountCount }}
@@ -235,7 +261,11 @@ import type {
   ExchangeRate,
   ExchangeRateInput
 } from "../types/currency";
-import type { DatabaseStats, TableExportName } from "../types/settings";
+import type {
+  AppDataInfo,
+  DatabaseStats,
+  TableExportName
+} from "../types/settings";
 
 const statsLoading = ref(false);
 const exportingKey = ref<string | null>(null);
@@ -274,13 +304,21 @@ const stats = reactive<DatabaseStats>({
   pointProgramCount: 0,
   pointTransactionCount: 0,
   activityCount: 0,
+  subscriptionCount: 0,
+  subscriptionPaymentCount: 0,
+  budgetCount: 0,
   activeAccountCount: 0,
   activePointProgramCount: 0
 });
 
-const appDataInfo = reactive({
+const appDataInfo = reactive<AppDataInfo>({
   databaseName: "finance.db",
-  note: "数据库由 Tauri SQL 插件存放在应用数据目录中。"
+  appDataDir: "",
+  appLocalDataDir: "",
+  appConfigDir: "",
+  detectedDatabasePath: undefined,
+  note:
+    "SQLite 数据库由 Tauri SQL 插件按 `sqlite:finance.db` 管理，实际落点可能依赖 Tauri 平台目录策略。"
 });
 
 const tableExports: Array<{ tableName: TableExportName; label: string }> = [
@@ -288,7 +326,10 @@ const tableExports: Array<{ tableName: TableExportName; label: string }> = [
   { tableName: "transactions", label: "transactions" },
   { tableName: "point_programs", label: "point_programs" },
   { tableName: "point_transactions", label: "point_transactions" },
-  { tableName: "activities", label: "activities" }
+  { tableName: "activities", label: "activities" },
+  { tableName: "subscriptions", label: "subscriptions" },
+  { tableName: "subscription_payments", label: "subscription_payments" },
+  { tableName: "budgets", label: "budgets" }
 ];
 
 onMounted(() => {
@@ -424,7 +465,10 @@ function fileNamePrefix(tableName: TableExportName): string {
     transactions: "transactions",
     point_programs: "point-programs",
     point_transactions: "point-transactions",
-    activities: "activities"
+    activities: "activities",
+    subscriptions: "subscriptions",
+    subscription_payments: "subscription-payments",
+    budgets: "budgets"
   };
 
   return names[tableName];
@@ -487,6 +531,12 @@ function getErrorMessage(caughtError: unknown): string {
 
 .field-label {
   font-weight: 650;
+}
+
+.path-value {
+  overflow-wrap: anywhere;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
 }
 
 .currency-select,
